@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"io"
 	"io/ioutil"
 	"log"
@@ -15,6 +17,8 @@ import (
 
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/parser"
+	"github.com/nfnt/resize"
+	"golang.org/x/image/draw"
 	"gopkg.in/yaml.v3"
 )
 
@@ -71,6 +75,38 @@ func copy(src, dst string) (int64, error) {
 	defer destination.Close()
 	nBytes, err := io.Copy(destination, source)
 	return nBytes, err
+}
+
+func resizeJPEG(sourceFilename, destFilename string) {
+	input, _ := os.Open(sourceFilename)
+	defer input.Close()
+
+	output, _ := os.Create(destFilename)
+	defer output.Close()
+
+	// Decode the image (from PNG to image.Image):
+	src, _ := jpeg.Decode(input)
+
+	// Max JPEG size = 1000x1000 bounding box.
+	maxSize := 1000
+	portrait := src.Bounds().Max.Y > src.Bounds().Max.X
+	scaleRatio := 0.0
+	if portrait {
+		scaleRatio = float64(maxSize) / float64(src.Bounds().Max.Y)
+	} else {
+		scaleRatio = float64(maxSize) / float64(src.Bounds().Max.X)
+	}
+	newWidth := int(float64(src.Bounds().Max.X) * scaleRatio)
+	newHeight := int(float64(src.Bounds().Max.Y) * scaleRatio)
+
+	// Set the expected size that you want:
+	dst := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+
+	// Resize:
+	draw.NearestNeighbor.Scale(dst, dst.Rect, src, src.Bounds(), draw.Over, nil)
+	newImage := resize.Resize(uint(newWidth), uint(newHeight), src, resize.Bicubic)
+	// Encode to `output`:
+	jpeg.Encode(output, newImage, nil)
 }
 
 func main() {
@@ -138,6 +174,9 @@ func main() {
 					}
 
 					markdownCount++
+				} else if strings.ToLower(ext) == ".jpg" {
+					targetFilename := "published/" + theFile[len("content")+1:]
+					resizeJPEG(theFile, targetFilename)
 				} else { // Not a .md file, so just copy it to the published folder.
 					targetFilename := "published/" + theFile[len("content")+1:]
 					// if folder - create it.
